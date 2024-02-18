@@ -47,6 +47,7 @@ mod tests {
 
     let btree = BTree::new(path, branches).unwrap();
 
-    println!("{:?}", btree);
+    assert_eq!(btree.branches, branches);
+    assert_eq!(btree.path, path);
   }
 }
