@@ -49,6 +49,7 @@ impl TryFrom<&[u8]> for Value {
     }
 }
 
+#[derive(Debug)]
 pub struct Page {
     data: Box<PageData>,
 }

@@ -42,10 +42,13 @@ impl BTree {
   pub fn insert(&mut self, kv: KeyValuePair) -> Result<(), Error> {
     let root_offset = self.wal.get_root()?;
     let root_page = self.pager.get_page(&root_offset)?;
-    let mut new_root_offset: Offset;
+    let new_root_offset: Offset;
     let mut new_root: Node;
 
     let mut root = Node::try_from(root_page)?;
+
+    println!("root: {:?} - is node full? {}", root, self.is_node_full(&root)?);
+
     if self.is_node_full(&root)? {
         new_root = Node::new(NodeType::Internal(vec![], vec![]), true, None);
         new_root_offset = self.pager.write_page(Page::try_from(&new_root)?)?;
@@ -63,6 +66,19 @@ impl BTree {
 
     self.insert_non_full(&mut new_root, new_root_offset.clone(), kv)?;
     self.wal.set_root(new_root_offset)
+  }
+
+  pub fn search(&mut self, key: String) -> Result<KeyValuePair, Error> {
+    let root_offset = self.wal.get_root()?;
+    let root_page = self.pager.get_page(&root_offset)?;
+    let root = Node::try_from(root_page)?;
+    self.search_node(root, key)
+  }
+
+  pub fn print(&mut self) -> Result<(), Error> {
+    println!("");
+    let root_offset = self.wal.get_root()?;
+    self.print_sub_tree(String::from(""), root_offset)
   }
 
   fn insert_non_full(&mut self, node: &mut Node, node_offset: Offset, kv: KeyValuePair) -> Result<(), Error> {
@@ -107,20 +123,82 @@ impl BTree {
       NodeType::Unexpected => Err(Error::UnexpectedError)
     }
   }
+
+  fn search_node(&mut self, node: Node, search: String) -> Result<KeyValuePair, Error> {
+    match node.node_type {
+        NodeType::Internal(children, keys) => {
+            let idx = keys.binary_search(&Key(search.clone())).unwrap_or_else(|x| x);
+            let child_offset = children.get(idx).ok_or(Error::UnexpectedError)?;
+            let page = self.pager.get_page(child_offset)?;
+            let child_node = Node::try_from(page)?;
+            self.search_node(child_node, search)
+        } 
+        NodeType::Leaf(pairs) => {
+            if let Ok(idx) = pairs.binary_search_by_key(&search, |pair| pair.key.clone()) {
+                return Ok(pairs[idx].clone());
+            }
+            Err(Error::KeyNotFound)
+        }
+        NodeType::Unexpected => Err(Error::UnexpectedError),
+    }
+  }
+
+  fn print_sub_tree(&mut self, prefix: String, offset: Offset) -> Result<(), Error> {
+    println!("{}Node at offset: {}", prefix, offset.0);
+    let curr_prefix = format!("{}|->", prefix);
+    let page = self.pager.get_page(&offset)?;
+    let node = Node::try_from(page)?;
+    match node.node_type {
+        NodeType::Internal(children, keys) => {
+            println!("{}Keys: {:?}", curr_prefix, keys);
+            println!("{}Children: {:?}", curr_prefix, children);
+            let child_prefix = format!("{}   |  ", prefix);
+            for child_offset in children {
+                self.print_sub_tree(child_prefix.clone(), child_offset)?;
+            }
+            Ok(())
+        }
+        NodeType::Leaf(pairs) => {
+            println!("{}Key value pairs: {:?}", curr_prefix, pairs);
+            Ok(())
+        }
+        NodeType::Unexpected => Err(Error::UnexpectedError),
+    }
+  }
 }
 
 #[cfg(test)]
 mod tests {
-  use super::*;
+    use super::*;
+
+    #[test]
+    fn should_create_new_btree() {
+        let path = Path::new("/tmp/db");
+        let branches = 10;
+
+        let btree = BTree::new(path, branches).unwrap();
+
+        assert_eq!(btree.branches, branches);
+        assert_eq!(btree.path, path);
+    }
+
 
   #[test]
-  fn should_create_new_btree() {
-    let path = Path::new("/tmp/db");
-    let branches = 10;
+    fn should_insert_new_node_with_root_not_full() -> Result<(), Error> {
+        let mut btree = BTree::new(Path::new("/tmp/db"), 2)?;
+        btree.insert(KeyValuePair::new(String::from("a"), String::from("testing")))?;
+        btree.insert(KeyValuePair::new(String::from("j"), String::from("this")))?;
+        btree.insert(KeyValuePair::new(String::from("i"), String::from("other")))?;
+        btree.insert(KeyValuePair::new(String::from("m"), String::from("insertion")))?;
+        btree.insert(KeyValuePair::new(String::from("b"), String::from("other")))?;
+        btree.insert(KeyValuePair::new(String::from("n"), String::from("lol")))?;
+        btree.insert(KeyValuePair::new(String::from("ab"), String::from("value")))?;
 
-    let btree = BTree::new(path, branches).unwrap();
+        let _ = btree.print();
 
-    assert_eq!(btree.branches, branches);
-    assert_eq!(btree.path, path);
-  }
+        let kv = btree.search(String::from("a"));
+        assert_eq!(kv.unwrap(), KeyValuePair::new(String::from("a"), String::from("testing")));
+
+        Ok(())
+    }
 }

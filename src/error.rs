@@ -5,6 +5,7 @@ pub enum Error {
   ValueOverflowError,
   TryFromSliceError(String),
   UTF8Error,
+  KeyNotFound,
 }
 
 impl std::convert::From<std::io::Error> for Error {
