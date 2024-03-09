@@ -3,6 +3,8 @@ pub enum Error {
   UnexpectedError,
   KeyOverflowError,
   ValueOverflowError,
+  TryFromSliceError(String),
+  UTF8Error,
 }
 
 impl std::convert::From<std::io::Error> for Error {

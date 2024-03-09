@@ -1,6 +1,6 @@
 use std::{
   fs::{File, OpenOptions},
-  io::{Seek, SeekFrom, Write},
+  io::{Read, Seek, SeekFrom, Write},
   path::Path,
 };
 
@@ -37,5 +37,18 @@ impl Pager {
     let res = Offset(self.cursor);
     self.cursor += PAGE_SIZE;
     Ok(res)
+  }
+
+  pub fn write_page_at_offset(&mut self, page: Page, offset: &Offset) -> Result<(), Error> {
+    self.file.seek(SeekFrom::Start(offset.0 as u64))?;
+    self.file.write_all(&page.get_data())?;
+    Ok(())
+  }
+
+  pub fn get_page(&mut self, offset: &Offset) -> Result<Page, Error> {
+    let mut page: [u8; PAGE_SIZE] = [0x00; PAGE_SIZE];
+    self.file.seek(SeekFrom::Start(offset.0 as u64))?;
+    self.file.read_exact(&mut page)?;
+    Ok(Page::new(page))
   }
 }

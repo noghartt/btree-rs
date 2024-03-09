@@ -2,7 +2,8 @@ use std::mem::size_of;
 
 use crate::{
     error::Error,
-    node::{Key, Node, NodeType, Offset, KEY_SIZE, VALUE_SIZE}
+    node::{Key, Node, NodeType, Offset, KEY_SIZE, VALUE_SIZE},
+    utils::bool_to_byte,
 };
 
 /// The page size for each page.
@@ -10,24 +11,43 @@ use crate::{
 pub const PAGE_SIZE: usize = 4096;
 pub const PTR_SIZE: usize = size_of::<usize>(); // 8 bytes on 64-bit systems
 
-const IS_ROOT_SIZE: usize = 1;
-const IS_ROOT_OFFSET: usize = 0;
-const PARENT_POINTER_OFFSET: usize = 2;
-const PARENT_POINTER_SIZE: usize = PTR_SIZE;
-const NODE_TYPE_SIZE: usize = 1;
-const NODE_TYPE_OFFSET: usize = 1;
-const COMMON_NODE_HEADER_SIZE: usize = NODE_TYPE_SIZE + IS_ROOT_SIZE + PARENT_POINTER_SIZE;
+pub const IS_ROOT_SIZE: usize = 1;
+pub const IS_ROOT_OFFSET: usize = 0;
+pub const PARENT_POINTER_OFFSET: usize = 2;
+pub const PARENT_POINTER_SIZE: usize = PTR_SIZE;
+pub const NODE_TYPE_SIZE: usize = 1;
+pub const NODE_TYPE_OFFSET: usize = 1;
+pub const COMMON_NODE_HEADER_SIZE: usize = NODE_TYPE_SIZE + IS_ROOT_SIZE + PARENT_POINTER_SIZE;
 
-const INTERNAL_NODE_NUM_CHILDREN_OFFSET: usize = COMMON_NODE_HEADER_SIZE;
-const INTERNAL_NODE_NUM_CHILDREN_SIZE: usize = PTR_SIZE;
-const INTERNAL_NODE_HEADER_SIZE: usize =
-    COMMON_NODE_HEADER_SIZE + INTERNAL_NODE_NUM_CHILDREN_SIZE;
+pub const INTERNAL_NODE_NUM_CHILDREN_OFFSET: usize = COMMON_NODE_HEADER_SIZE;
+pub const INTERNAL_NODE_NUM_CHILDREN_SIZE: usize = PTR_SIZE;
+pub const INTERNAL_NODE_HEADER_SIZE: usize = COMMON_NODE_HEADER_SIZE + INTERNAL_NODE_NUM_CHILDREN_SIZE;
 
-const LEAF_NODE_NUM_PAIRS_OFFSET: usize = COMMON_NODE_HEADER_SIZE;
-const LEAF_NODE_NUM_PAIRS_SIZE: usize = PTR_SIZE;
-const LEAF_NODE_HEADER_SIZE: usize = COMMON_NODE_HEADER_SIZE + LEAF_NODE_NUM_PAIRS_SIZE;
+pub const LEAF_NODE_NUM_PAIRS_OFFSET: usize = COMMON_NODE_HEADER_SIZE;
+pub const LEAF_NODE_NUM_PAIRS_SIZE: usize = PTR_SIZE;
+pub const LEAF_NODE_HEADER_SIZE: usize = COMMON_NODE_HEADER_SIZE + LEAF_NODE_NUM_PAIRS_SIZE;
 
 type PageData = [u8; PAGE_SIZE];
+
+/// This is a wrapper for a value in a given page
+pub struct Value(pub usize);
+
+impl TryFrom<&[u8]> for Value {
+    type Error = Error;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        if value.len() > PTR_SIZE {
+            return Err(Error::TryFromSliceError(format!("Unexpected Error: array received is larger than the maximum allowed size ({}b)", PTR_SIZE)));
+        }
+
+        let mut truncated_arr = [0u8; PTR_SIZE];
+        for (i, item) in value.iter().enumerate() {
+            truncated_arr[i] = *item;
+        }
+
+        Ok(Value(usize::from_be_bytes(truncated_arr)))
+    }
+}
 
 pub struct Page {
     data: Box<PageData>,
@@ -42,6 +62,16 @@ impl Page {
 
     pub fn get_data(&self) -> PageData {
         *self.data
+    }
+
+    pub fn get_value_from_offset(&self, offset: usize) -> Result<usize, Error> {
+        let bytes = &self.data[offset..offset + PTR_SIZE];
+        let Value(res) = Value::try_from(bytes)?;
+        Ok(res)
+    }
+
+    pub fn get_ptr_from_offset(&self, offset: usize, size: usize) -> &[u8] {
+        &self.data[offset..offset + size]
     }
 }
 
@@ -134,9 +164,4 @@ impl TryFrom<&Node> for Page {
 
         Ok(Self::new(data))
     }
-}
-
-/// TODO: Workaround to handle to_byte() on `bool` value
-fn bool_to_byte(b: bool) -> u8 {
-    if b { 0x01 } else { 0x00 }
 }
